@@ -5,21 +5,44 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define PORT 2022
+#define PORT 2023
 
 void handle_conn(int connfd) {
 
   char buffer[1024];
   bzero(buffer, 1024);
   int len = read(connfd, buffer, 1024);
+  if(len < 0){
+    return;
+  }
 
-  char* req = strtok(buffer, "\r\n\r\n");
-  printf("\e[0;34m%s\n", req);
-  
-  char html[] = "Hello world";
+  char *req = strtok(buffer, "\r\n\r\n");
+  printf("\e[0;34m%s", req);
+  fflush(stdout);
+
+  strtok(req, " ");
+  char *path = strtok(NULL, " ");
+
+  if (strcmp(path, "/") == 0) {
+    char html[] = "Hello";
+    int code = 200;
+    char resp[1024];
+    snprintf(resp, sizeof(resp),
+             "HTTP/1.1 %i OK\r\nContent-Length:%li\r\n\r\n%s", code,
+             sizeof(html), html);
+    printf("\e[0;32m - %i\n", code);
+
+    write(connfd, resp, sizeof(resp));
+
+    return;
+  }
+
+  char html[] = "Not found";
+  int code = 404;
   char resp[1024];
-  snprintf(resp, sizeof(resp), "HTTP/1.1 200 OK\r\nContent-Length:%li\r\n\r\n%s", sizeof(html)-1, html);
-
+  snprintf(resp, sizeof(resp), "HTTP/1.1 %i Not Found\r\nContent-Length:%li\r\n\r\n%s",
+           code, sizeof(html) - 1, html);
+  printf("\e[0;31m - %i\n", code);
   write(connfd, resp, sizeof(resp));
 }
 
