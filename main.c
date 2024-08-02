@@ -1,22 +1,24 @@
 #include <netinet/in.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 
-#define PORT 2023
+#define PORT 2019
 
 void handle_conn(int connfd) {
 
   char buffer[1024];
   bzero(buffer, 1024);
+
   int len = read(connfd, buffer, 1024);
-  if(len < 0){
+  if (len < 0) {
     return;
   }
 
-  char *req = strtok(buffer, "\r\n\r\n");
+  char *req = strtok(buffer, "\r\n");
   printf("\e[0;34m%s", req);
   fflush(stdout);
 
@@ -29,19 +31,42 @@ void handle_conn(int connfd) {
     char resp[1024];
     snprintf(resp, sizeof(resp),
              "HTTP/1.1 %i OK\r\nContent-Length:%li\r\n\r\n%s", code,
-             sizeof(html), html);
+             sizeof(html) - 1, html);
     printf("\e[0;32m - %i\n", code);
 
     write(connfd, resp, sizeof(resp));
+  }
 
+  char fpath[256] = "./public";
+  FILE *fptr = fopen(strcat(fpath, path), "r");
+
+  if (fptr != NULL) {
+    fseek(fptr, 0L, SEEK_END);
+    int fsize = ftell(fptr);
+    fseek(fptr, 0L, SEEK_SET);
+
+    char *buffer = (char *)calloc(fsize, sizeof(char));
+
+    fread(buffer, sizeof(char), fsize, fptr);
+    int code = 200;
+    char resp[1024];
+
+    snprintf(resp, sizeof(resp),
+             "HTTP/1.1 %i OK\r\nContent-Length:%i\r\n\r\n%s", code, fsize,
+             buffer);
+    printf("\e[0;32m - %i\n", code);
+
+    write(connfd, resp, sizeof(resp));
+    free(buffer);
     return;
   }
 
   char html[] = "Not found";
   int code = 404;
   char resp[1024];
-  snprintf(resp, sizeof(resp), "HTTP/1.1 %i Not Found\r\nContent-Length:%li\r\n\r\n%s",
-           code, sizeof(html) - 1, html);
+  snprintf(resp, sizeof(resp),
+           "HTTP/1.1 %i Not Found\r\nContent-Length:%li\r\n\r\n%s", code,
+           sizeof(html) - 1, html);
   printf("\e[0;31m - %i\n", code);
   write(connfd, resp, sizeof(resp));
 }
