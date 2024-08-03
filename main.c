@@ -6,7 +6,55 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define PORT 2019
+#define PORT 4224
+
+struct http_req {
+  char *req_line;
+  char *method;
+  char *path;
+  char **headers;
+};
+
+struct http_req parse_req(char buffer[]) {
+  struct http_req parsed;
+
+  char *end_of_req = strstr(buffer, "\r\n");
+  // request is broken
+  if (end_of_req == NULL) {
+    parsed.method = parsed.path = parsed.req_line = NULL;
+    return parsed;
+  }
+
+  int req_size =
+      end_of_req -
+      buffer; // trying to find the difference in the pointer, because end of
+              // req is right after buffer in the stack frame
+
+  parsed.req_line = malloc(req_size + 1);
+  strncpy(parsed.req_line, buffer, req_size);
+  parsed.req_line[req_size] = '\0';
+
+  char *method = strtok(buffer, " ");
+
+  char *path = strtok(NULL, " ");
+
+  strtok(NULL, "\r\n");
+
+  parsed.headers = malloc(30 * sizeof(char *));
+
+  int c = 0;
+  char *header = strtok(NULL, "\r\n");
+  while (header != NULL && c < 30) {
+    parsed.headers[c] = header;
+    c++;
+    header = strtok(NULL, "\r\n");
+  }
+
+  parsed.method = method;
+  parsed.path = path;
+
+  return parsed;
+}
 
 void handle_conn(int connfd) {
 
@@ -18,27 +66,11 @@ void handle_conn(int connfd) {
     return;
   }
 
-  char *req = strtok(buffer, "\r\n");
-  printf("\e[0;34m%s", req);
-  fflush(stdout);
-
-  strtok(req, " ");
-  char *path = strtok(NULL, " ");
-
-  if (strcmp(path, "/") == 0) {
-    char html[] = "Hello";
-    int code = 200;
-    char resp[1024];
-    snprintf(resp, sizeof(resp),
-             "HTTP/1.1 %i OK\r\nContent-Length:%li\r\n\r\n%s", code,
-             sizeof(html) - 1, html);
-    printf("\e[0;32m - %i\n", code);
-
-    write(connfd, resp, sizeof(resp));
-  }
+  struct http_req parsed = parse_req(buffer);
+  printf("\e[0;34m%s", parsed.req_line);
 
   char fpath[256] = "./public";
-  FILE *fptr = fopen(strcat(fpath, path), "r");
+  FILE *fptr = fopen(strcat(fpath, parsed.path), "r");
 
   if (fptr != NULL) {
     fseek(fptr, 0L, SEEK_END);
@@ -61,12 +93,10 @@ void handle_conn(int connfd) {
     return;
   }
 
-  char html[] = "Not found";
-  int code = 404;
+  int code = 200;
   char resp[1024];
-  snprintf(resp, sizeof(resp),
-           "HTTP/1.1 %i Not Found\r\nContent-Length:%li\r\n\r\n%s", code,
-           sizeof(html) - 1, html);
+  snprintf(resp, sizeof(resp), "HTTP/1.1 %i OK\r\nContent-Length:%li\r\n\r\n%s",
+           code, strlen(parsed.headers[0]), parsed.headers[0]);
   printf("\e[0;31m - %i\n", code);
   write(connfd, resp, sizeof(resp));
 }
