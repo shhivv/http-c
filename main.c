@@ -6,14 +6,44 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define PORT 4224
+#define PORT 4241
 
 struct http_req {
   char *req_line;
   char *method;
   char *path;
   char **headers;
+  char *version;
+  char *body;
 };
+
+struct http_resp {
+  int code;
+  char *c_msg; // status line msg
+  char **headers;
+  char *body;
+  int b_size;
+  int h_count;
+};
+
+char *form_resp(struct http_resp resp, char *buf) {
+
+  snprintf(buf, 1024, "HTTP/1.1 %i %s\r\n", resp.code, resp.c_msg);
+  int i = 0;
+  while (i < resp.h_count) {
+    strcat(buf, resp.headers[i]);
+    strcat(buf, "\r\n");
+    i++;
+  }
+
+  char b_size_header[80];
+  snprintf(b_size_header, 80, "Content-Length:%d", resp.b_size);
+
+  strcat(buf, b_size_header);
+  strcat(buf, "\r\n");
+  strcat(buf, "\r\n");
+  strcat(buf, resp.body);
+}
 
 struct http_req parse_req(char buffer[]) {
   struct http_req parsed;
@@ -38,21 +68,24 @@ struct http_req parse_req(char buffer[]) {
 
   char *path = strtok(NULL, " ");
 
-  strtok(NULL, "\r\n");
+  char *version = strtok(NULL, "\r\n");
 
   parsed.headers = malloc(30 * sizeof(char *));
 
   int c = 0;
   char *header = strtok(NULL, "\r\n");
-  while (header != NULL && c < 30) {
+  while (header != NULL && c < 30) { // if the number of headers is more than
+                                     // 29, the body is lost which is bad
     parsed.headers[c] = header;
     c++;
     header = strtok(NULL, "\r\n");
   }
 
+  parsed.body = parsed.headers[c - 1];
+  parsed.headers[c - 1] = NULL;
+
   parsed.method = method;
   parsed.path = path;
-
   return parsed;
 }
 
@@ -72,7 +105,7 @@ void handle_conn(int connfd) {
   char fpath[256] = "./public";
   FILE *fptr = fopen(strcat(fpath, parsed.path), "r");
 
-  if (fptr != NULL) {
+  if (fptr != NULL && strcmp(parsed.path, "/") != 0) {
     fseek(fptr, 0L, SEEK_END);
     int fsize = ftell(fptr);
     fseek(fptr, 0L, SEEK_SET);
@@ -83,20 +116,41 @@ void handle_conn(int connfd) {
     int code = 200;
     char resp[1024];
 
-    snprintf(resp, sizeof(resp),
-             "HTTP/1.1 %i OK\r\nContent-Length:%i\r\n\r\n%s", code, fsize,
-             buffer);
+    struct http_resp c;
+    c.code = code;
+    c.c_msg = "OK";
+    char *headers[] = {"hello:bye"};
+
+    c.headers = headers;
+    c.h_count = 1;
+
+    c.body = buffer;
+    c.b_size = fsize;
+    form_resp(c, resp);
+
     printf("\e[0;32m - %i\n", code);
 
-    write(connfd, resp, sizeof(resp));
+    write(connfd, resp, strlen(resp) - 1);
     free(buffer);
     return;
   }
 
-  int code = 200;
+  int code = 404;
   char resp[1024];
-  snprintf(resp, sizeof(resp), "HTTP/1.1 %i OK\r\nContent-Length:%li\r\n\r\n%s",
-           code, strlen(parsed.headers[0]), parsed.headers[0]);
+
+  char msg[] = "Resource Not Found";
+  struct http_resp c;
+  c.code = code;
+  c.c_msg = "Not Found";
+  char *headers[] = {"hello:bye"};
+
+  c.headers = headers;
+  c.h_count = 1;
+
+  c.body = msg;
+  c.b_size = strlen(msg);
+  form_resp(c, resp);
+
   printf("\e[0;31m - %i\n", code);
   write(connfd, resp, sizeof(resp));
 }
@@ -112,6 +166,8 @@ int main(void) {
     return 0;
   }
 
+  // int reuse = 1;
+  // setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(&reuse));
   struct sockaddr_in server_addr;
 
   server_addr.sin_family = AF_INET; // internet sockets
