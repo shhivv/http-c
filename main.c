@@ -106,7 +106,8 @@ int handle_conn(void *arg) {
   printf("\e[0;34m%s", parsed.req_line);
 
   char fpath[256] = "./public";
-  FILE *fptr = fopen(strcat(fpath, parsed.path), "r");
+  char *abc = strcat(fpath, parsed.path); // sometimes seg fault here.
+  FILE *fptr = fopen(abc, "r");
 
   if (fptr != NULL && strcmp(parsed.path, "/") != 0) {
     fseek(fptr, 0L, SEEK_END);
@@ -134,6 +135,8 @@ int handle_conn(void *arg) {
     printf("\e[0;32m - %i\n", code);
 
     write(*connfd, resp, strlen(resp) - 1);
+    close(*connfd);
+    fclose(fptr);
     free(buffer);
     return 0;
   }
@@ -156,6 +159,7 @@ int handle_conn(void *arg) {
 
   printf("\e[0;31m - %i\n", code);
   write(*connfd, resp, sizeof(resp));
+  close(*connfd);
   return 0;
 }
 
