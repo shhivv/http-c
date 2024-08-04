@@ -7,7 +7,7 @@
 #include <threads.h>
 #include <unistd.h>
 
-#define PORT 4241
+#define PORT 12341
 
 struct http_req {
   char *req_line;
@@ -92,22 +92,28 @@ struct http_req parse_req(char buffer[]) {
 
 int handle_conn(void *arg) {
 
-  int *connfd = arg;
+  int connfd = *(int *)arg;
+  free(arg);
 
   char buffer[1024];
   bzero(buffer, 1024);
 
-  int len = read(*connfd, buffer, 1024);
+  int len = read(connfd, buffer, 1024);
   if (len < 0) {
+    close(connfd);
     return 0;
   }
 
   struct http_req parsed = parse_req(buffer);
+  if (parsed.req_line == NULL) {
+    close(connfd);
+    return 0;
+  }
   printf("\e[0;34m%s", parsed.req_line);
 
   char fpath[256] = "./public";
-  char *abc = strcat(fpath, parsed.path); // sometimes seg fault here.
-  FILE *fptr = fopen(abc, "r");
+  snprintf(fpath, sizeof(fpath), "./public%s", parsed.path);
+  FILE *fptr = fopen(fpath, "r");
 
   if (fptr != NULL && strcmp(parsed.path, "/") != 0) {
     fseek(fptr, 0L, SEEK_END);
@@ -134,8 +140,8 @@ int handle_conn(void *arg) {
 
     printf("\e[0;32m - %i\n", code);
 
-    write(*connfd, resp, strlen(resp) - 1);
-    close(*connfd);
+    write(connfd, resp, strlen(resp) - 1);
+    close(connfd);
     fclose(fptr);
     free(buffer);
     return 0;
@@ -158,8 +164,8 @@ int handle_conn(void *arg) {
   form_resp(c, resp);
 
   printf("\e[0;31m - %i\n", code);
-  write(*connfd, resp, sizeof(resp));
-  close(*connfd);
+  write(connfd, resp, sizeof(resp));
+  close(connfd);
   return 0;
 }
 
@@ -195,9 +201,15 @@ int main(void) {
   listen(sockfd, 10);
 
   while (1) {
-    int connfd = accept(sockfd, NULL, NULL);
+    int *connfd = malloc(sizeof(int));
+    *connfd = accept(sockfd, NULL, NULL);
+    if (*connfd < 0) {
+      free(connfd);
+      continue;
+    }
     thrd_t t;
-    thrd_create(&t, handle_conn, &connfd);
+    thrd_create(&t, handle_conn, connfd);
+    // thrd_detach(t);
   }
 
   return 0;
