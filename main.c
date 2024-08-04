@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <threads.h>
 #include <unistd.h>
 
 #define PORT 4241
@@ -89,14 +90,16 @@ struct http_req parse_req(char buffer[]) {
   return parsed;
 }
 
-void handle_conn(int connfd) {
+int handle_conn(void *arg) {
+
+  int *connfd = arg;
 
   char buffer[1024];
   bzero(buffer, 1024);
 
-  int len = read(connfd, buffer, 1024);
+  int len = read(*connfd, buffer, 1024);
   if (len < 0) {
-    return;
+    return 0;
   }
 
   struct http_req parsed = parse_req(buffer);
@@ -130,9 +133,9 @@ void handle_conn(int connfd) {
 
     printf("\e[0;32m - %i\n", code);
 
-    write(connfd, resp, strlen(resp) - 1);
+    write(*connfd, resp, strlen(resp) - 1);
     free(buffer);
-    return;
+    return 0;
   }
 
   int code = 404;
@@ -152,7 +155,8 @@ void handle_conn(int connfd) {
   form_resp(c, resp);
 
   printf("\e[0;31m - %i\n", code);
-  write(connfd, resp, sizeof(resp));
+  write(*connfd, resp, sizeof(resp));
+  return 0;
 }
 
 int main(void) {
@@ -166,8 +170,9 @@ int main(void) {
     return 0;
   }
 
-  // int reuse = 1;
-  // setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(&reuse));
+  int reuse = 1;
+  // prevents that annoying error of port being used
+  setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(&reuse));
   struct sockaddr_in server_addr;
 
   server_addr.sin_family = AF_INET; // internet sockets
@@ -183,11 +188,12 @@ int main(void) {
 
   printf("Connected on %i:%i\n", INADDR_ANY, PORT);
 
-  listen(sockfd, 5);
+  listen(sockfd, 10);
 
   while (1) {
     int connfd = accept(sockfd, NULL, NULL);
-    handle_conn(connfd);
+    thrd_t t;
+    thrd_create(&t, handle_conn, &connfd);
   }
 
   return 0;
